@@ -1,4 +1,6 @@
-FROM ubuntu:latest
+# Pinned (not ubuntu:latest): newer Ubuntu ships Python 3.14, on which pydantic's
+# forward-ref evaluation breaks and langchain cannot define its models. 24.04 = 3.12.
+FROM ubuntu:24.04
 
 ARG DEBIAN_FRONTEND=noninteractive
 
