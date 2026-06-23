@@ -557,6 +557,27 @@ def get_models(base_url):
 # Streamlit UI for uploading and converting pcap file
 def upload_and_convert_pcap():
     st.title('Packet Raptor - Chat with Packet Captures as a Tree')
+
+    # 1. LLM backend settings first (Ollama or llama.cpp -- both OpenAI-compatible)
+    st.subheader("1. LLM Backend")
+    base_url = st.text_input(
+        "LLM server URL",
+        value=st.session_state.get('llm_base_url', DEFAULT_LLM_URL),
+        help="Ollama (default :11434) or a llama.cpp server (e.g. :8100). "
+             "Both expose an OpenAI-compatible /v1 API.",
+    ).rstrip("/")
+    st.session_state['llm_base_url'] = base_url
+    show_backend_badge(base_url)
+
+    models = get_models(base_url)
+    if models:
+        selected_model = st.selectbox("Select Model", models)
+        st.session_state['selected_model'] = selected_model
+    else:
+        st.warning("No models found at this server URL -- check the URL and that the backend is up.")
+
+    # 2. PCAP upload, underneath the LLM settings
+    st.subheader("2. Packet Capture")
     uploaded_file = st.file_uploader("Choose a PCAP file", type="pcap")
     if uploaded_file:
         if not os.path.exists('temp'):
@@ -565,29 +586,19 @@ def upload_and_convert_pcap():
         json_path = pcap_path + ".json"
         with open(pcap_path, "wb") as f:
             f.write(uploaded_file.getvalue())
-        pcap_to_json(pcap_path, json_path)
+        # Show progress while tshark converts the capture
+        with st.spinner(f"Converting '{uploaded_file.name}' to JSON with tshark..."):
+            pcap_to_json(pcap_path, json_path)
         st.session_state['json_path'] = json_path
-        st.success("PCAP file uploaded and converted to JSON.")
-        
-        # Choose the LLM backend (Ollama or llama.cpp -- both OpenAI-compatible)
-        st.subheader("LLM Backend")
-        base_url = st.text_input(
-            "LLM server URL",
-            value=st.session_state.get('llm_base_url', DEFAULT_LLM_URL),
-            help="Ollama (default :11434) or a llama.cpp server (e.g. :8080). "
-                 "Both expose an OpenAI-compatible /v1 API.",
-        ).rstrip("/")
-        st.session_state['llm_base_url'] = base_url
-        show_backend_badge(base_url)
+        st.success(f"'{uploaded_file.name}' uploaded and converted to JSON.")
 
-        # Fetch and display the models in a select box
-        models = get_models(base_url)
-        if models:
-            selected_model = st.selectbox("Select Model", models)
-            st.session_state['selected_model'] = selected_model
-
+        # 3. Proceed (only once a model is selected)
+        if st.session_state.get('selected_model'):
             if st.button("Proceed to Chat"):
                 st.session_state['page'] = 2
+                st.rerun()
+        else:
+            st.info("Select a model above to proceed.")
 
 # Streamlit UI for chat interface
 def chat_interface():
@@ -598,7 +609,9 @@ def chat_interface():
         return
 
     if 'chat_instance' not in st.session_state:
-        st.session_state['chat_instance'] = ChatWithPCAP(json_path=json_path)
+        with st.spinner("Building the RAPTOR tree from your capture "
+                        "(embedding, clustering, summarizing)... this can take a while."):
+            st.session_state['chat_instance'] = ChatWithPCAP(json_path=json_path)
 
     # Visualize the tree
     if st.session_state['chat_instance'].root_node:
