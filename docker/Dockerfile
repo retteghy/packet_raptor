@@ -50,9 +50,13 @@ RUN echo "==> Adding networkx ..." \
 RUN echo "==> Adding pyvis ..." \
   && pip install --break-system-packages pyvis
 
+# InstructorEmbedding only works with the old sentence-transformers 2.2.2, which
+# imports huggingface_hub.cached_download (removed in hub 0.26). Pin the whole stack
+# to a mutually compatible set; this is the last pip layer so nothing re-upgrades it.
 RUN echo "==> Adding InstructorEmbedding ..." \
-  && pip install --break-system-packages -U sentence-transformers==2.2.2 \
-  && pip install --break-system-packages InstructorEmbedding
+  && pip install --break-system-packages \
+       "huggingface_hub==0.25.2" "transformers==4.44.2" \
+       "sentence-transformers==2.2.2" InstructorEmbedding
 
 COPY /packet_raptor /packet_raptor/
 COPY /scripts /scripts/
