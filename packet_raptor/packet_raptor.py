@@ -11,7 +11,7 @@ from sklearn.cluster import KMeans
 from langchain_openai import ChatOpenAI
 from sklearn.mixture import GaussianMixture
 import streamlit.components.v1 as components
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.vectorstores import Chroma
 from langchain.memory import ConversationBufferMemory
 from sklearn.metrics.pairwise import cosine_similarity

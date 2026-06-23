@@ -14,9 +14,13 @@ RUN echo "==> Installing Python3 and pip ...." \
 RUN echo "==> Install dos2unix..." \
   && sudo apt-get install dos2unix -y 
 
+# Pin to the langchain 0.3 line: the app uses ConversationalRetrievalChain and
+# ConversationBufferMemory, which were removed in langchain 1.x. --ignore-installed
+# packaging keeps Debian's packaging in place (langchain-core 0.3 caps it <25).
 RUN echo "==> Install langchain requirements.." \
-  && pip install --break-system-packages -U --quiet langchain_experimental langchain langchain-community \
-  && pip install --break-system-packages langchain-openai openai \
+  && pip install --break-system-packages --ignore-installed packaging --quiet \
+       "langchain>=0.3,<0.4" "langchain-community>=0.3,<0.4" \
+       "langchain-experimental>=0.3,<0.4" "langchain-openai>=0.2,<0.3" openai \
   && pip install --break-system-packages chromadb \
   && pip install --break-system-packages tiktoken
 
