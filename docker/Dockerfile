@@ -50,13 +50,12 @@ RUN echo "==> Adding networkx ..." \
 RUN echo "==> Adding pyvis ..." \
   && pip install --break-system-packages pyvis
 
-# InstructorEmbedding only works with the old sentence-transformers 2.2.2, which
-# imports huggingface_hub.cached_download (removed in hub 0.26). Pin the whole stack
-# to a mutually compatible set; this is the last pip layer so nothing re-upgrades it.
-RUN echo "==> Adding InstructorEmbedding ..." \
+# Embeddings via modern sentence-transformers + langchain-huggingface (no Instructor).
+# The default model (all-MiniLM-L6-v2) is small and CPU-friendly, and this avoids the
+# old InstructorEmbedding / huggingface_hub.cached_download pinning entirely.
+RUN echo "==> Adding embedding deps ..." \
   && pip install --break-system-packages \
-       "huggingface_hub==0.25.2" "transformers==4.44.2" \
-       "sentence-transformers==2.2.2" InstructorEmbedding
+       "langchain-huggingface>=0.1,<0.2" sentence-transformers
 
 COPY /packet_raptor /packet_raptor/
 COPY /scripts /scripts/

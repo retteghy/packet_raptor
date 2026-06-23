@@ -21,9 +21,8 @@ APP = sys.argv[1] if len(sys.argv) > 1 else "/packet_raptor/packet_raptor.py"
 # render does not import these, so check them explicitly -- this is the layer
 # where the Instructor/sentence-transformers/huggingface_hub rot bites.
 CHAT_BACKENDS = [
-    ("InstructorEmbedding", "INSTRUCTOR"),
     ("sentence_transformers", "SentenceTransformer"),
-    ("langchain_community.embeddings", "HuggingFaceInstructEmbeddings"),
+    ("langchain_huggingface", "HuggingFaceEmbeddings"),
     ("langchain_community.vectorstores", "Chroma"),
     ("langchain_experimental.text_splitter", "SemanticChunker"),
     ("langchain.chains", "ConversationalRetrievalChain"),

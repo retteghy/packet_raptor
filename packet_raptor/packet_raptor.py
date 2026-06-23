@@ -19,13 +19,17 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import JSONLoader
 from langchain_experimental.text_splitter import SemanticChunker
-from langchain_community.embeddings import HuggingFaceInstructEmbeddings
+from langchain_huggingface import HuggingFaceEmbeddings
 
 # --- LLM backend configuration -------------------------------------------------
 # Both Ollama and llama.cpp expose an OpenAI-compatible API, so a single OpenAI
 # client (ChatOpenAI) can talk to either one -- just point it at the server's
 # /v1 route. detect_backend() then labels which one is actually answering.
 DEFAULT_LLM_URL = os.environ.get("OLLAMA_URL", "http://ollama:11434")
+
+# Small, CPU-friendly embedding model (384-dim). Override with EMBEDDING_MODEL.
+# Much faster than instructor-large on CPU and avoids the InstructorEmbedding deps.
+EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 
 BACKEND_LABELS = {
     "ollama":   "🦙 Ollama",
@@ -83,8 +87,8 @@ def load_model():
     # also runs on GPU-less hosts (the LLM itself lives on the backend).
     import torch
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    with st.spinner(f"Downloading Instructor Embeddings Model locally ({device})....please be patient"):
-        embedding_model=HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-large", model_kwargs={"device": device})
+    with st.spinner(f"Loading embedding model {EMBEDDING_MODEL} ({device})..."):
+        embedding_model = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL, model_kwargs={"device": device})
     return embedding_model
 
 # Class for chatting with pcap data
