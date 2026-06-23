@@ -16,6 +16,7 @@ RUN echo "==> Install dos2unix..." \
 
 RUN echo "==> Install langchain requirements.." \
   && pip install --break-system-packages -U --quiet langchain_experimental langchain langchain-community \
+  && pip install --break-system-packages langchain-openai openai \
   && pip install --break-system-packages chromadb \
   && pip install --break-system-packages tiktoken
 

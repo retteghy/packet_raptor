@@ -8,13 +8,14 @@ services:
     image: ollama/ollama
     networks:
       - ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [ gpu ]
+    # On an NVIDIA host, uncomment to give Ollama the GPU:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [ gpu ]
     volumes:
       - ./data/ollama:/root/.ollama
     ports:
@@ -50,14 +51,15 @@ services:
     depends_on:
       - ollama
     networks:
-      - ollama      
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [ gpu ]
+      - ollama
+    # On an NVIDIA host, uncomment to give Packet Raptor the GPU for embeddings:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [ gpu ]
 
 volumes:
   ollama: {}

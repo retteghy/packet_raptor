@@ -8,7 +8,7 @@ import networkx as nx
 import streamlit as st
 from pyvis.network import Network
 from sklearn.cluster import KMeans
-from langchain_community.llms import Ollama
+from langchain_openai import ChatOpenAI
 from sklearn.mixture import GaussianMixture
 import streamlit.components.v1 as components
 from langchain.prompts import ChatPromptTemplate
@@ -19,7 +19,50 @@ from langchain.chains import ConversationalRetrievalChain
 from langchain_core.output_parsers import StrOutputParser
 from langchain_community.document_loaders import JSONLoader
 from langchain_experimental.text_splitter import SemanticChunker
-from langchain_community.embeddings import HuggingFaceInstructEmbeddings 
+from langchain_community.embeddings import HuggingFaceInstructEmbeddings
+
+# --- LLM backend configuration -------------------------------------------------
+# Both Ollama and llama.cpp expose an OpenAI-compatible API, so a single OpenAI
+# client (ChatOpenAI) can talk to either one -- just point it at the server's
+# /v1 route. detect_backend() then labels which one is actually answering.
+DEFAULT_LLM_URL = os.environ.get("OLLAMA_URL", "http://ollama:11434")
+
+BACKEND_LABELS = {
+    "ollama":   "🦙 Ollama",
+    "llamacpp": "🔥 llama.cpp",
+    "unknown":  "❓ Unknown backend",
+}
+
+def get_llm_base_url():
+    """Base URL of the LLM server, without a trailing slash."""
+    return st.session_state.get("llm_base_url", DEFAULT_LLM_URL).rstrip("/")
+
+def detect_backend(base_url):
+    """Probe a server to tell Ollama from llama.cpp.
+
+    Ollama answers /api/version with a {'version': ...} payload; the llama.cpp
+    server answers /health with {'status': 'ok'}. Returns 'ollama', 'llamacpp',
+    or 'unknown'.
+    """
+    base_url = base_url.rstrip("/")
+    try:
+        r = requests.get(f"{base_url}/api/version", timeout=3)
+        if r.status_code == 200 and "version" in r.json():
+            return "ollama"
+    except requests.exceptions.RequestException:
+        pass
+    try:
+        r = requests.get(f"{base_url}/health", timeout=3)
+        if r.status_code == 200 and r.json().get("status") == "ok":
+            return "llamacpp"
+    except requests.exceptions.RequestException:
+        pass
+    return "unknown"
+
+def show_backend_badge(base_url):
+    backend = detect_backend(base_url)
+    st.caption(f"Backend detected: {BACKEND_LABELS[backend]}  ·  {base_url}")
+    return backend
 
 # Message classes
 class Message:
@@ -36,15 +79,26 @@ class AIMessage(Message):
 
 @st.cache_resource
 def load_model():
-    with st.spinner("Downloading Instructor XL Embeddings Model locally....please be patient"):
-        embedding_model=HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-large", model_kwargs={"device": "cuda"})
+    # Use the GPU when one is present, otherwise fall back to CPU so the app
+    # also runs on GPU-less hosts (the LLM itself lives on the backend).
+    import torch
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    with st.spinner(f"Downloading Instructor Embeddings Model locally ({device})....please be patient"):
+        embedding_model=HuggingFaceInstructEmbeddings(model_name="hkunlp/instructor-large", model_kwargs={"device": device})
     return embedding_model
 
 # Class for chatting with pcap data
 class ChatWithPCAP:
     def __init__(self, json_path):
         self.embedding_model = load_model()
-        self.llm = Ollama(model=st.session_state['selected_model'], base_url="http://ollama:11434")
+        base_url = get_llm_base_url()
+        # OpenAI-compatible client works against both Ollama and llama.cpp.
+        self.llm = ChatOpenAI(
+            base_url=f"{base_url}/v1",
+            api_key="not-needed",
+            model=st.session_state['selected_model'],
+            temperature=0.4,
+        )
         self.document_cluster_mapping = {}
         self.json_path = json_path
         self.conversation_history = []
@@ -329,9 +383,9 @@ class ChatWithPCAP:
             synthesized_response = self.llm.invoke(synthesis_prompt)
 
             if synthesized_response:
-                # Assuming synthesized_response is an AIMessage object with a 'content' attribute
-                st.write(synthesized_response)
-                final_answer = synthesized_response
+                # ChatOpenAI returns an AIMessage; pull out the text for display/history
+                final_answer = getattr(synthesized_response, "content", str(synthesized_response))
+                st.write(final_answer)
             else:
                 final_answer = "Unable to synthesize a response."
 
@@ -425,7 +479,7 @@ class ChatWithPCAP:
         """Invoke the language model to generate a summary for the given text."""
         template = "You are an assistant to create a detailed summary of the text input provided.\nText:\n{text}"
         prompt = ChatPromptTemplate.from_template(template)
-        chain = prompt | self.llm.invoke | StrOutputParser()
+        chain = prompt | self.llm | StrOutputParser()
 
         summary = chain.invoke({"text": text})
         st.write("Generated Summary:", summary)
@@ -474,20 +528,30 @@ class Node:
     
 # Function to convert pcap to JSON
 def pcap_to_json(pcap_path, json_path):
-    command = f'tshark -nlr {pcap_path} -T json > {json_path}'
-    subprocess.run(command, shell=True)
+    with open(json_path, "w") as out:
+        subprocess.run(["tshark", "-nlr", pcap_path, "-T", "json"], stdout=out, check=True)
 
-def get_ollama_models(base_url):
-    try:       
-        response = requests.get(f"{base_url}api/tags")  # Corrected endpoint
+def get_models(base_url):
+    """List models from an OpenAI-compatible (/v1/models) endpoint.
+
+    Works for both Ollama and llama.cpp. Falls back to Ollama's native
+    /api/tags if the OpenAI-compatible route returns nothing.
+    """
+    base_url = base_url.rstrip("/")
+    try:
+        response = requests.get(f"{base_url}/v1/models", timeout=5)
         response.raise_for_status()
-        models_data = response.json()
-        
-        # Extract just the model names for the dropdown
-        models = [model['name'] for model in models_data.get('models', [])]
-        return models
+        models = [m["id"] for m in response.json().get("data", []) if m.get("id")]
+        if models:
+            return models
+    except requests.exceptions.RequestException:
+        pass
+    try:
+        response = requests.get(f"{base_url}/api/tags", timeout=5)
+        response.raise_for_status()
+        return [m["name"] for m in response.json().get("models", [])]
     except requests.exceptions.RequestException as e:
-        st.error(f"Failed to get models from Ollama: {e}")
+        st.error(f"Failed to get models from LLM backend: {e}")
         return []
 
 # Streamlit UI for uploading and converting pcap file
@@ -505,14 +569,25 @@ def upload_and_convert_pcap():
         st.session_state['json_path'] = json_path
         st.success("PCAP file uploaded and converted to JSON.")
         
+        # Choose the LLM backend (Ollama or llama.cpp -- both OpenAI-compatible)
+        st.subheader("LLM Backend")
+        base_url = st.text_input(
+            "LLM server URL",
+            value=st.session_state.get('llm_base_url', DEFAULT_LLM_URL),
+            help="Ollama (default :11434) or a llama.cpp server (e.g. :8080). "
+                 "Both expose an OpenAI-compatible /v1 API.",
+        ).rstrip("/")
+        st.session_state['llm_base_url'] = base_url
+        show_backend_badge(base_url)
+
         # Fetch and display the models in a select box
-        models = get_ollama_models("http://ollama:11434/")  # Make sure to use the correct base URL
+        models = get_models(base_url)
         if models:
             selected_model = st.selectbox("Select Model", models)
             st.session_state['selected_model'] = selected_model
-            
+
             if st.button("Proceed to Chat"):
-                st.session_state['page'] = 2               
+                st.session_state['page'] = 2
 
 # Streamlit UI for chat interface
 def chat_interface():
